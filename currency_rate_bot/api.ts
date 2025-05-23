@@ -1,0 +1,1 @@
+export const GET_BINANCE_CURRENCIES = 'https://api.binance.com/api/v3/ticker/price';
