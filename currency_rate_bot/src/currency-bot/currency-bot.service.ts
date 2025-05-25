@@ -5,7 +5,7 @@ import axios from 'axios';
 import { CURRENCY_PAIRS, QUOTE_CURRENCIES } from 'src/constants';
 import { GET_BINANCE_CURRENCIES } from 'api';
 import { createClient } from 'redis';
-import { ClientKafka } from '@nestjs/microservices';
+import { ClientKafka, MessagePattern, Payload } from '@nestjs/microservices';
 
 function splitPair(pair: string): [string, string] {
   const quote = QUOTE_CURRENCIES.find((q) => pair.endsWith(q));
@@ -24,13 +24,13 @@ export class CurrencyBotService implements OnModuleInit {
   private readonly logger = new Logger(CurrencyBotService.name);
   private readonly bot = new Telegraf(process.env.BOT_TOKEN || '');
   private readonly subscriptions = new Map<number, Subscription[]>();
-  
+
   private redisClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
 
   constructor(
     @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
-  ) {}
-  
+  ) { }
+
   async onModuleInit() {
     await this.redisClient.connect();
     await this.saveRates();
@@ -91,25 +91,35 @@ export class CurrencyBotService implements OnModuleInit {
 
   @Cron('* * * * *')
   async saveRates() {
-     this.logger.log('⏰ Cron is running!');
-    const { data } = await axios.get(GET_BINANCE_CURRENCIES);
-    const ratesMap = new Map(data.map((d: any) => [d.symbol, parseFloat(d.price)]));
+    this.logger.log('⏰ SaveRates: Cron is starting!');
 
-    const kafkaMessage: { symbol: string; rate: string }[] = [];
+    try {
+      const { data } = await axios.get(GET_BINANCE_CURRENCIES);
+      const ratesMap = new Map(data.map((d: { symbol: any; price: string; }) => [d.symbol, parseFloat(d.price)]));
 
-    for (const pair of CURRENCY_PAIRS) {
-      const rate = Number(ratesMap.get(pair));
-      if (rate !== undefined) {
-        await this.redisClient.set(pair, rate.toString());
-        kafkaMessage.push({ symbol: pair, rate: rate.toString() })
+      const kafkaMessage: { symbol: string; rate: string }[] = [];
+
+      for (const pair of CURRENCY_PAIRS) {
+        const rate = Number(ratesMap.get(pair));
+        if (rate !== undefined) {
+          await this.redisClient.set(pair, rate.toString());
+          kafkaMessage.push({ symbol: pair, rate: rate.toString() })
+        }
       }
-    }
 
-    this.kafkaClient.emit('currency-updates', {
-       timestamp: Date.now(),
-       pairsInfo: kafkaMessage,
-    });
+      this.kafkaClient.emit('currency.update', {
+        timestamp: Date.now(),
+        pairsInfo: kafkaMessage,
+      });
+
+      this.logger.log('⏰ SaveRates: Cron is starting!');
+    } catch (e) {
+      this.logger.error('❌ SaveRates: Cron failed with error', e);
+    }
+  }
+
+  @MessagePattern('user.notify')
+  handleNotification(@Payload() message: any) {
+    this.bot.telegram.sendMessage(message.chatId, message)
   }
 }
-
-
