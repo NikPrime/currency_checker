@@ -16,14 +16,14 @@ services:
 
   redis:
     image: redis:7
-    container_name: my_redis
+    container_name: redis
     restart: unless-stopped
     ports:
       - "6379:6379"
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: my_zookeeper
+    container_name: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -46,6 +46,8 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data  
 
   kafka-ui:
     image: provectuslabs/kafka-ui
@@ -58,6 +60,21 @@ services:
       - KAFKA_CLUSTERS_0_NAME=local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
 
+  currency_rate_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: currency_rate_bot
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    depends_on:
+      - redis
+      - kafka
+      - postgres
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:
+  kafka_data:

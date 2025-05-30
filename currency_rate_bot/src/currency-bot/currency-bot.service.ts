@@ -17,6 +17,7 @@ function splitPair(pair: string): [string, string] {
 interface Subscription {
   pair: string;
   direction: 'up' | 'down';
+  threshold: number; // проценты
 }
 
 @Injectable()
@@ -55,32 +56,57 @@ export class CurrencyBotService implements OnModuleInit {
     this.bot.action(/^pair_(.+)$/, async (ctx) => {
       const pair = ctx.match[1];
       const rate = await this.getRate(pair);
-      await ctx.reply(`Курс ${pair.slice(0, 3)}/${pair.slice(3)}: ${rate}`);
-      await ctx.reply(`Хочешь подписаться на уведомления при изменении?`, {
+
+      await ctx.reply(`Курс ${pair}: ${rate}`);
+      await ctx.reply('Выбери порог изменения цены для уведомлений:', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '0.5%', callback_data: `threshold_${pair}_0.5` }],
+            [{ text: '1%', callback_data: `threshold_${pair}_1` }],
+            [{ text: '2%', callback_data: `threshold_${pair}_2` }],
+          ],
+        },
+      });
+    });
+
+    this.bot.action(/^threshold_(.+)_(.+)$/, async (ctx) => {
+      const pair = ctx.match[1];
+      const threshold = parseFloat(ctx.match[2]);
+
+      await ctx.reply(`Теперь выбери направление изменения курса:`, {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '📈 При росте', callback_data: `sub_${pair}_up` },
-              { text: '📉 При падении', callback_data: `sub_${pair}_down` },
+              { text: '📈 При росте', callback_data: `sub_${pair}_up_${threshold}` },
+              { text: '📉 При падении', callback_data: `sub_${pair}_down_${threshold}` },
             ],
           ],
         },
       });
     });
 
-    this.bot.action(/^sub_(.+)_(up|down)$/, async (ctx) => {
+    this.bot.action(/^sub_(.+)_(up|down)_(.+)$/, async (ctx) => {
       const pair = ctx.match[1];
       const direction = ctx.match[2] as 'up' | 'down';
+      const threshold = parseFloat(ctx.match[3]);
 
       if (!ctx.chat) {
         await ctx.reply('Ошибка: не удалось определить чат.');
         return;
       }
+
       const chatId = ctx.chat.id;
-      const current = this.subscriptions.get(chatId) || [];
-      current.push({ pair, direction });
-      this.subscriptions.set(chatId, current);
-      await ctx.reply(`Подписка оформлена: ${pair} при ${direction === 'up' ? 'росте' : 'падении'}`);
+      const rate = await this.getRate(pair);
+
+      this.kafkaClient.emit('currency.subscriptions', {
+        chatId,
+        pair,
+        direction,
+        threshold,
+        currentRate: rate,
+      });
+
+      await ctx.reply(`✅ Подписка оформлена: ${pair} при ${direction === 'up' ? 'росте' : 'падении'} на ${threshold}% (текущий курс: ${rate})`);
     });
   }
 
@@ -112,7 +138,7 @@ export class CurrencyBotService implements OnModuleInit {
         pairsInfo: kafkaMessage,
       });
 
-      this.logger.log('⏰ SaveRates: Cron is starting!');
+      this.logger.log('⏰ SaveRates: Cron successfully finished!');
     } catch (e) {
       this.logger.error('❌ SaveRates: Cron failed with error', e);
     }
