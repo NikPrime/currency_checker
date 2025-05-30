@@ -14,17 +14,10 @@ function splitPair(pair: string): [string, string] {
   return [base, quote];
 }
 
-interface Subscription {
-  pair: string;
-  direction: 'up' | 'down';
-  threshold: number; // проценты
-}
-
 @Injectable()
 export class CurrencyBotService implements OnModuleInit {
   private readonly logger = new Logger(CurrencyBotService.name);
   private readonly bot = new Telegraf(process.env.BOT_TOKEN || '');
-  private readonly subscriptions = new Map<number, Subscription[]>();
 
   private redisClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
 
