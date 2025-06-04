@@ -119,10 +119,11 @@ export class CurrencyBotService implements OnModuleInit {
       const kafkaMessage: { symbol: string; rate: string }[] = [];
 
       for (const pair of CURRENCY_PAIRS) {
-        const rate = Number(ratesMap.get(pair));
-        if (rate !== undefined) {
+        const rateValue = ratesMap.get(pair);
+        if (rateValue !== undefined) {
+          const rate = Number(rateValue);
           await this.redisClient.set(pair, rate.toString());
-          kafkaMessage.push({ symbol: pair, rate: rate.toString() })
+          kafkaMessage.push({ symbol: pair, rate: rate.toString() });
         }
       }
 
@@ -139,6 +140,6 @@ export class CurrencyBotService implements OnModuleInit {
 
   @MessagePattern('user.notify')
   handleNotification(@Payload() message: any) {
-    this.bot.telegram.sendMessage(message.chatId, message)
+    this.bot.telegram.sendMessage(message.chatId, message.text ?? String(message));
   }
 }
